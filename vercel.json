@@ -13,7 +13,10 @@
   "functions": {
     "api/index.ts": {
       "maxDuration": 30,
-      "includeFiles": "backend/dist/**"
+      "includeFiles": [
+        "api/backend-dist/**",
+        "backend/node_modules/**"
+      ]
     }
   },
   "crons": [
