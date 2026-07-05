@@ -14,3 +14,11 @@ if (!existsSync(src)) {
 if (existsSync(dest)) rmSync(dest, { recursive: true, force: true });
 cpSync(src, dest, { recursive: true });
 console.log('Copied backend/dist → api/backend-dist');
+
+const prismaSrc = path.join(root, 'backend', 'node_modules', '.prisma');
+const prismaDest = path.join(root, 'node_modules', '.prisma');
+if (existsSync(prismaSrc)) {
+  if (existsSync(prismaDest)) rmSync(prismaDest, { recursive: true, force: true });
+  cpSync(prismaSrc, prismaDest, { recursive: true });
+  console.log('Copied Prisma engine → root node_modules/.prisma');
+}
