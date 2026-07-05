@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "install:all": "npm install --prefix backend --include=dev && npm install --prefix frontend --include=dev",
-    "build:backend": "cd backend && npx prisma generate && npm run build && node ../scripts/copy-api-dist.mjs",
+    "build:backend": "npx prisma generate --schema=backend/prisma/schema.prisma && cd backend && npm run build && node ../scripts/copy-api-dist.mjs",
     "build:frontend": "cd frontend && npm run build",
     "build": "npm run build:backend && npm run build:frontend",
     "vercel-build": "npm run build"
@@ -23,5 +23,8 @@
     "serverless-http": "^3.2.0",
     "uuid": "^11.0.3",
     "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "prisma": "^5.22.0"
   }
 }
