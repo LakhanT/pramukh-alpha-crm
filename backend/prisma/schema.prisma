@@ -1,0 +1,489 @@
+// Role-Based Task Management System — Database Schema
+// PostgreSQL via Prisma ORM
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─── Users & Auth ───────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(uuid())
+  name         String
+  email        String   @unique // Company email — used for Pramukh Alpha login
+  personalEmail String? @map("personal_email")
+  passwordHash String   @map("password_hash")
+  department   String?
+  status       UserStatus @default(ACTIVE)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  // Global system role (Admin has full access)
+  systemRole   SystemRole @default(MEMBER) @map("system_role")
+  avatarUrl    String?    @map("avatar_url")
+  jobTitle     String?    @map("job_title")
+  reportsToId  String?    @map("reports_to_id")
+
+  reportsTo            User?                  @relation("ReportsTo", fields: [reportsToId], references: [id], onDelete: SetNull)
+  directReports        User[]                 @relation("ReportsTo")
+  refreshTokens        RefreshToken[]
+  projectMembers       ProjectMember[]
+  ownedProjects        Project[]              @relation("ProjectOwner")
+  taskAssignments      TaskAssignee[]
+  taskWatchers         TaskWatcher[]
+  comments             Comment[]
+  attachments          Attachment[]
+  activityLogs         ActivityLog[]
+  notifications        Notification[]
+  notificationPrefs    NotificationPreference?
+  assignmentHistory    AssignmentHistory[]    @relation("AssignedBy")
+  receivedAssignments  AssignmentHistory[]    @relation("AssignedTo")
+  taskVersions         TaskVersion[]
+  userActionLogs       UserActionLog[]
+  deletedTasks         Task[]                 @relation("DeletedTasks")
+  sentInvites          MemberInvite[]         @relation("InvitedBy")
+
+  @@map("users")
+}
+
+model MemberInvite {
+  id          String     @id @default(uuid())
+  email       String
+  name        String?
+  department  String?
+  systemRole  SystemRole @default(MEMBER) @map("system_role")
+  token       String     @unique
+  invitedById String     @map("invited_by_id")
+  expiresAt   DateTime   @map("expires_at")
+  acceptedAt  DateTime?  @map("accepted_at")
+  createdAt   DateTime   @default(now()) @map("created_at")
+
+  invitedBy User @relation("InvitedBy", fields: [invitedById], references: [id], onDelete: Cascade)
+
+  @@index([email])
+  @@map("member_invites")
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum SystemRole {
+  ADMIN
+  MEMBER
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String   @map("user_id")
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("refresh_tokens")
+}
+
+// ─── Roles & Permissions (configurable matrix) ──────────────────
+
+model Role {
+  id          String   @id @default(uuid())
+  name        String   @unique // Admin, Manager, Team Lead, Member, Viewer
+  description String?
+  isSystem    Boolean  @default(false) @map("is_system")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  permissions     RolePermission[]
+  projectMembers  ProjectMember[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String @id @default(uuid())
+  resource    String // task, project, comment, attachment, user, role
+  action      String // create, read, update, delete, assign, manage
+  scope       String @default("project") // project, global
+  description String?
+
+  roles RolePermission[]
+
+  @@unique([resource, action, scope])
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String @map("role_id")
+  permissionId String @map("permission_id")
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+// ─── Projects / Workspaces ──────────────────────────────────────
+
+model Project {
+  id         String            @id @default(uuid())
+  name       String
+  description String?
+  ownerId    String            @map("owner_id")
+  visibility ProjectVisibility @default(PRIVATE)
+  createdAt  DateTime          @default(now()) @map("created_at")
+  updatedAt  DateTime          @updatedAt @map("updated_at")
+
+  owner   User            @relation("ProjectOwner", fields: [ownerId], references: [id])
+  members ProjectMember[]
+  tasks   Task[]
+  tags    Tag[]
+
+  @@map("projects")
+}
+
+enum ProjectVisibility {
+  PRIVATE
+  TEAM
+  PUBLIC
+}
+
+model ProjectMember {
+  id        String   @id @default(uuid())
+  projectId String   @map("project_id")
+  userId    String   @map("user_id")
+  roleId    String   @map("role_id")
+  joinedAt  DateTime @default(now()) @map("joined_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role    Role    @relation(fields: [roleId], references: [id])
+
+  @@unique([projectId, userId])
+  @@map("project_members")
+}
+
+// ─── Tasks ──────────────────────────────────────────────────────
+
+model Task {
+  id          String       @id @default(uuid())
+  projectId   String       @map("project_id")
+  title       String
+  description String?
+  status      TaskStatus   @default(TODO)
+  priority    TaskPriority @default(MEDIUM)
+  dueDate     DateTime?    @map("due_date")
+  startDate   DateTime?    @map("start_date")
+  parentId    String?      @map("parent_id")
+  position    Int          @default(0)
+  isRecurring Boolean      @default(false) @map("is_recurring")
+  recurrenceRule String?   @map("recurrence_rule") // cron-like or RRULE
+  customFields Json?       @map("custom_fields")
+  createdById String       @map("created_by_id")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+  deletedAt   DateTime?    @map("deleted_at")
+  deletedById String?      @map("deleted_by_id")
+  completedAt DateTime?    @map("completed_at")
+  estimatedMinutes   Int?  @map("estimated_minutes")
+  actualMinutesSpent Int?  @map("actual_minutes_spent")
+  qualityRating      Int?  @map("quality_rating")
+  reworkFlag         Boolean @default(false) @map("rework_flag")
+
+  project      Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parent       Task?                @relation("Subtasks", fields: [parentId], references: [id], onDelete: SetNull)
+  subtasks     Task[]               @relation("Subtasks")
+  assignees    TaskAssignee[]
+  watchers     TaskWatcher[]
+  tags         TaskTag[]
+  dependencies TaskDependency[]     @relation("DependentTask")
+  dependents   TaskDependency[]     @relation("BlockingTask")
+  comments     Comment[]
+  attachments  Attachment[]
+  notifications Notification[]
+  versions     TaskVersion[]
+  deletedBy    User?                @relation("DeletedTasks", fields: [deletedById], references: [id])
+
+  @@index([projectId, status])
+  @@index([dueDate])
+  @@index([deletedAt])
+  @@map("tasks")
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  IN_REVIEW
+  DONE
+  CANCELLED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model TaskAssignee {
+  taskId     String   @map("task_id")
+  userId     String   @map("user_id")
+  assignedAt DateTime @default(now()) @map("assigned_at")
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, userId])
+  @@map("task_assignees")
+}
+
+model TaskWatcher {
+  taskId String @map("task_id")
+  userId String @map("user_id")
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, userId])
+  @@map("task_watchers")
+}
+
+model TaskDependency {
+  id              String @id @default(uuid())
+  taskId          String @map("task_id") // dependent task
+  dependsOnTaskId String @map("depends_on_task_id") // must complete first
+
+  task      Task @relation("DependentTask", fields: [taskId], references: [id], onDelete: Cascade)
+  dependsOn Task @relation("BlockingTask", fields: [dependsOnTaskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, dependsOnTaskId])
+  @@map("task_dependencies")
+}
+
+model Tag {
+  id        String @id @default(uuid())
+  name      String
+  color     String @default("#6366f1")
+  projectId String @map("project_id")
+
+  project Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tasks   TaskTag[]
+
+  @@unique([projectId, name])
+  @@map("tags")
+}
+
+model TaskTag {
+  taskId String @map("task_id")
+  tagId  String @map("tag_id")
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  tag  Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, tagId])
+  @@map("task_tags")
+}
+
+model AssignmentHistory {
+  id           String   @id @default(uuid())
+  taskId       String   @map("task_id")
+  assignedToId String   @map("assigned_to_id")
+  assignedById String   @map("assigned_by_id")
+  action       String   // assigned, unassigned, reassigned
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  assignedTo User @relation("AssignedTo", fields: [assignedToId], references: [id])
+  assignedBy User @relation("AssignedBy", fields: [assignedById], references: [id])
+
+  @@index([taskId])
+  @@map("assignment_history")
+}
+
+// ─── Comments ───────────────────────────────────────────────────
+
+model Comment {
+  id        String   @id @default(uuid())
+  taskId    String   @map("task_id")
+  userId    String   @map("user_id")
+  content   String
+  mentions  String[] @default([])
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@map("comments")
+}
+
+// ─── Attachments / Proof ────────────────────────────────────────
+
+enum ProofType {
+  FILE
+  LINK
+  TEXT
+}
+
+model Attachment {
+  id           String    @id @default(uuid())
+  taskId       String    @map("task_id")
+  proofType    ProofType @default(FILE) @map("proof_type")
+  fileName     String    @map("file_name")
+  fileUrl      String?   @map("file_url")
+  textContent  String?   @map("text_content")
+  fileSize     Int       @default(0) @map("file_size")
+  mimeType     String    @default("application/octet-stream") @map("mime_type")
+  uploadedById String    @map("uploaded_by_id")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  task       Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  uploadedBy User @relation(fields: [uploadedById], references: [id])
+
+  @@index([taskId])
+  @@map("attachments")
+}
+
+// ─── Activity Log / Audit Trail ─────────────────────────────────
+
+model ActivityLog {
+  id         String   @id @default(uuid())
+  entityType String   @map("entity_type") // task, project, comment, user
+  entityId   String   @map("entity_id")
+  action     String   // created, updated, deleted, status_changed, assigned
+  field      String?
+  oldValue   String?  @map("old_value")
+  newValue   String?  @map("new_value")
+  changedById String  @map("changed_by_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  changedBy User @relation(fields: [changedById], references: [id])
+
+  @@index([entityType, entityId])
+  @@index([changedById])
+  @@index([createdAt])
+  @@map("activity_logs")
+}
+
+model TaskVersion {
+  id          String       @id @default(uuid())
+  taskId      String       @map("task_id")
+  version     Int
+  title       String
+  description String?
+  status      TaskStatus
+  priority    TaskPriority
+  dueDate     DateTime?    @map("due_date")
+  startDate   DateTime?    @map("start_date")
+  snapshot    Json
+  changedById String       @map("changed_by_id")
+  createdAt   DateTime     @default(now()) @map("created_at")
+
+  task      Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  changedBy User @relation(fields: [changedById], references: [id])
+
+  @@unique([taskId, version])
+  @@index([taskId])
+  @@map("task_versions")
+}
+
+model UserActionLog {
+  id           String   @id @default(uuid())
+  userId       String?  @map("user_id")
+  action       String
+  entityType   String?  @map("entity_type")
+  entityId     String?  @map("entity_id")
+  details      Json?
+  ipAddress    String?  @map("ip_address")
+  userAgent    String?  @map("user_agent")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("user_action_logs")
+}
+
+// ─── Notifications ──────────────────────────────────────────────
+
+model Notification {
+  id            String           @id @default(uuid())
+  userId        String           @map("user_id")
+  type          NotificationType
+  message       String
+  isRead        Boolean          @default(false) @map("is_read")
+  relatedTaskId String?          @map("related_task_id")
+  metadata      Json?
+  createdAt     DateTime         @default(now()) @map("created_at")
+
+  user        User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  relatedTask Task? @relation(fields: [relatedTaskId], references: [id], onDelete: SetNull)
+
+  @@index([userId, isRead])
+  @@map("notifications")
+}
+
+enum NotificationType {
+  DUE_DATE_APPROACHING
+  OVERDUE
+  STATUS_CHANGE
+  MENTION
+  REASSIGNMENT
+  ESCALATION
+  COMMENT
+  GENERAL
+}
+
+model NotificationPreference {
+  id                  String  @id @default(uuid())
+  userId              String  @unique @map("user_id")
+  emailEnabled        Boolean @default(true) @map("email_enabled")
+  inAppEnabled        Boolean @default(true) @map("in_app_enabled")
+  pushEnabled         Boolean @default(true) @map("push_enabled")
+  smsEnabled          Boolean @default(false) @map("sms_enabled")
+  dueDateReminder     Boolean @default(true) @map("due_date_reminder")
+  overdueAlert        Boolean @default(true) @map("overdue_alert")
+  statusChange        Boolean @default(true) @map("status_change")
+  mentions            Boolean @default(true)
+  reassignment        Boolean @default(true)
+  escalationDays      Int     @default(3) @map("escalation_days")
+  digestEnabled       Boolean @default(true) @map("digest_enabled")
+  digestFrequency     String  @default("WEEKLY") @map("digest_frequency") // NONE, DAILY, WEEKLY
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notification_preferences")
+}
+
+// Organization-wide notification defaults (admin configurable)
+model SystemNotificationSettings {
+  id                    String  @id @default("default")
+  dueDateEmail          Boolean @default(true) @map("due_date_email")
+  dueDatePush           Boolean @default(true) @map("due_date_push")
+  dueDateSms            Boolean @default(false) @map("due_date_sms")
+  dueDateInApp          Boolean @default(true) @map("due_date_in_app")
+  overdueEmail          Boolean @default(true) @map("overdue_email")
+  overduePush           Boolean @default(true) @map("overdue_push")
+  overdueSms            Boolean @default(false) @map("overdue_sms")
+  overdueInApp          Boolean @default(true) @map("overdue_in_app")
+  statusChangeEnabled   Boolean @default(true) @map("status_change_enabled")
+  mentionsEnabled       Boolean @default(true) @map("mentions_enabled")
+  reassignmentEnabled   Boolean @default(true) @map("reassignment_enabled")
+  escalationEnabled     Boolean @default(true) @map("escalation_enabled")
+  defaultEscalationDays Int     @default(3) @map("default_escalation_days")
+  digestEnabled         Boolean @default(true) @map("digest_enabled")
+  digestFrequency       String  @default("WEEKLY") @map("digest_frequency") // DAILY, WEEKLY
+
+  @@map("system_notification_settings")
+}
