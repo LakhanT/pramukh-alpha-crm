@@ -21,7 +21,15 @@ export function createApp() {
 
   app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
   app.use(cors({
-    origin: config.frontendUrl,
+    origin(origin, callback) {
+      if (!origin) return callback(null, true);
+      const allowed = config.frontendUrl;
+      if (origin === allowed) return callback(null, true);
+      if (/^https:\/\/pramukh-alpha(-crm)?([a-z0-9-]*)?\.vercel\.app$/i.test(origin)) {
+        return callback(null, true);
+      }
+      callback(null, false);
+    },
     credentials: true,
   }));
   app.use(express.json());

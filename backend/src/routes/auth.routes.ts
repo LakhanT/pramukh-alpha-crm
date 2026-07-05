@@ -6,6 +6,7 @@ import { validate } from '../middleware/validate';
 import * as authService from '../services/auth.service';
 import { logUserAction } from '../services/audit.service';
 import { prisma } from '../config/database';
+import { normalizeCompanyEmail } from '../utils/email';
 
 function clientMeta(req: AuthRequest) {
   return {
@@ -30,8 +31,12 @@ const registerSchema = z.object({
 });
 
 const loginSchema = z.object({
-  email: z.string().email(),
-  password: z.string(),
+  email: z
+    .string()
+    .min(1, 'Email is required')
+    .transform(normalizeCompanyEmail)
+    .pipe(z.string().email('Enter a valid company email')),
+  password: z.string().min(1, 'Password is required'),
 });
 
 router.post('/register', authLimiter, validate(registerSchema), async (req: AuthRequest, res: Response) => {
@@ -62,7 +67,7 @@ router.post('/login', authLimiter, validate(loginSchema), async (req: AuthReques
     entityId: result.user.id,
     details: { email: result.user.email },
     ...meta,
-  });
+  }).catch(() => {});
   res.json(result);
 });
 

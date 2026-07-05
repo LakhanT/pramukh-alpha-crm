@@ -38,7 +38,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { accessToken, refreshToken, user } = await api.login(email, password);
     api.setTokens(accessToken, refreshToken);
     setUser(user);
-    await loadSession();
+    try {
+      await loadSession();
+    } catch {
+      /* login tokens are valid even if /me enrichment fails transiently */
+    }
   };
 
   const logout = async () => {
