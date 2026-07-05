@@ -45,6 +45,11 @@ Optional (email notifications):
 
 ## 4. Deploy
 
+**Live app:** https://pramukh-alpha-crm.vercel.app  
+**GitHub:** https://github.com/LakhanT/pramukh-alpha-crm
+
+Every push to `main` deploys automatically once GitHub is connected in Vercel → Project Settings → Git.
+
 ### Option A — Vercel CLI
 
 ```bash
