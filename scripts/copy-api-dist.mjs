@@ -1,11 +1,13 @@
 import { cpSync, existsSync, rmSync } from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 
-const src = path.join('backend', 'dist');
-const dest = path.join('api', 'backend-dist');
+const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
+const src = path.join(root, 'backend', 'dist');
+const dest = path.join(root, 'api', 'backend-dist');
 
 if (!existsSync(src)) {
-  console.error('backend/dist not found — run backend build first');
+  console.error(`backend/dist not found at ${src}`);
   process.exit(1);
 }
 
