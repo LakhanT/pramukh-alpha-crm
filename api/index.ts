@@ -10,9 +10,9 @@ function loadApp() {
   const Module = require('module') as typeof import('module') & {
     Module: { _initPaths: () => void };
   };
-  const backendNm = path.join(process.cwd(), 'backend', 'node_modules');
   const rootNm = path.join(process.cwd(), 'node_modules');
-  process.env.NODE_PATH = [backendNm, rootNm].join(path.delimiter);
+  const backendNm = path.join(process.cwd(), 'backend', 'node_modules');
+  process.env.NODE_PATH = [rootNm, backendNm].join(path.delimiter);
   Module.Module._initPaths();
 
   // eslint-disable-next-line @typescript-eslint/no-require-imports

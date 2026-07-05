@@ -13,10 +13,7 @@
   "functions": {
     "api/index.ts": {
       "maxDuration": 30,
-      "includeFiles": [
-        "api/backend-dist/**",
-        "backend/node_modules/**"
-      ]
+      "includeFiles": "api/backend-dist/**,backend/node_modules/.prisma/**,backend/node_modules/@prisma/**"
     }
   },
   "crons": [
